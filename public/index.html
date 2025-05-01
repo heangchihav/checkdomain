@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Domain Block Checker</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background-color: #f9f9f9;
+    }
+
+    h1,
+    h2 {
+      color: #333;
+    }
+
+    label {
+      display: block;
+      margin: 10px 0 5px;
+    }
+
+    textarea,
+    input[type="text"] {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 15px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+
+    button {
+      padding: 10px 20px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    .sim-card {
+      margin-bottom: 10px;
+      padding: 10px;
+      background: #e8e8e8;
+      border-radius: 5px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+
+    th,
+    td {
+      border: 1px solid #ddd;
+      padding: 10px;
+      text-align: left;
+    }
+
+    th {
+      background-color: #f4f4f4;
+    }
+
+    .loading {
+      text-align: center;
+      font-size: 1.5rem;
+      color: #007bff;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Domain Block Checker</h1>
+
+  <form id="domainForm">
+    <label for="domains">Enter domains (comma, space, or new line):</label>
+    <textarea id="domains" rows="5" placeholder="example.com\ngoogle.com"></textarea>
+
+    <div id="simCards">
+      <div class="sim-card">
+        <input type="text" class="simName" placeholder="SIM Name (e.g., Smart)" />
+        <input type="text" class="interface" placeholder="Interface (e.g., eth1)" />
+      </div>
+    </div>
+    <button type="button" onclick="addSimCard()">+ Add SIM</button>
+    <br><br>
+    <button type="submit">Check Domains</button>
+  </form>
+
+  <h2>Results:</h2>
+  <div id="results"></div>
+
+  <script>
+    function addSimCard() {
+      const container = document.getElementById('simCards');
+      const div = document.createElement('div');
+      div.className = 'sim-card';
+      div.innerHTML = `
+        <input type="text" class="simName" placeholder="SIM Name (e.g., Smart)" />
+        <input type="text" class="interface" placeholder="Interface (e.g., eth1)" />
+      `;
+      container.appendChild(div);
+    }
+
+    document.getElementById('domainForm').addEventListener('submit', async function (event) {
+      event.preventDefault();
+
+      const domains = document.getElementById('domains').value.split(/\n|,|\s+/).filter(Boolean);
+
+      const simConfigs = {};
+      const simNames = document.querySelectorAll('.simName');
+      const interfaces = document.querySelectorAll('.interface');
+
+      for (let i = 0; i < simNames.length; i++) {
+        const sim = simNames[i].value.trim();
+        const iface = interfaces[i].value.trim();
+        if (sim && iface) {
+          simConfigs[sim] = iface;
+        }
+      }
+
+      document.getElementById('results').innerHTML = '<div class="loading">Loading...</div>';
+
+      const response = await fetch('/api/check-domain', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ domains, simConfigs })
+      });
+
+      const { results } = await response.json();
+      const grouped = {};
+      results.forEach(r => {
+        if (!grouped[r.domain]) grouped[r.domain] = [];
+        grouped[r.domain].push(r);
+      });
+
+      let html = '';
+      for (const domain in grouped) {
+        html += `<h3>${domain}</h3><table><tr><th>SIM</th><th>Interface</th><th>Status</th></tr>`;
+        grouped[domain].forEach(({ sim, interface: iface, status }) => {
+          let color = '#6c757d';
+          let displayStatus = status;
+          if (status.includes('Failed') || status.includes('Timeout')) {
+            color = '#dc3545';
+            displayStatus = `🔴 ${status}`;
+          } else if (status.includes('200')) {
+            color = '#28a745';
+            displayStatus = `🟢 ${status}`;
+          } else if (status.includes('301') || status.includes('302')) {
+            color = '#ffc107';
+            displayStatus = `🟡 ${status}`;
+          } else {
+            displayStatus = `⚪ ${status}`;
+          }
+          html += `<tr><td>${sim}</td><td>${iface}</td><td style="color:${color}; font-weight:bold;">${displayStatus}</td></tr>`;
+        });
+        html += '</table>';
+      }
+
+      document.getElementById('results').innerHTML = html;
+    });
+  </script>
+</body>
+
+</html>
