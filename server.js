@@ -27,8 +27,18 @@ function getInterfaceIP(interfaceName) {
   return null;
 }
 
+// Helper function to clean domain names
+function cleanDomain(domain) {
+  // Remove http://, https://, or www. prefixes and trailing slashes
+  return domain
+    .replace(/^(https?:\/\/)?(?:www\.)?/i, '') // Remove prefixes
+    .replace(/\/+$/g, ''); // Remove trailing slashes
+}
+
 // Check domain over HTTPS first, fallback to HTTP
 function checkDomain(domain, localAddress) {
+  // Clean the domain name first
+  domain = cleanDomain(domain);
   return new Promise((resolve) => {
     dns.lookup(domain, (err) => {
       if (err) {
@@ -121,7 +131,9 @@ app.post('/api/check-domain', async (req, res) => {
   res.json({ message: 'Check started', totalChecks });
 
   // Process domains asynchronously
-  for (const domain of domains) {
+  for (let domain of domains) {
+    // Clean the domain name to handle any URLs with prefixes
+    domain = cleanDomain(domain);
     for (const [sim, iface] of Object.entries(simConfigs)) {
       // Use an IIFE to create a closure for each check
       (async () => {

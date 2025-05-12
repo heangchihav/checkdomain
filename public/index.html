@@ -168,7 +168,14 @@
       }
 
       // Parse domains and SIM configurations
-      const domains = document.getElementById('domains').value.split(/\n|,|\s+/).filter(Boolean);
+      // Clean up domains by removing http:// or https:// prefixes
+      const domainsRaw = document.getElementById('domains').value.split(/\n|,|\s+/).filter(Boolean);
+      const domains = domainsRaw.map(domain => {
+        // Remove http://, https://, or www. prefixes and trailing slashes
+        return domain
+          .replace(/^(https?:\/\/)?(?:www\.)?/i, '') // Remove prefixes
+          .replace(/\/+$/g, ''); // Remove trailing slashes
+      });
       const simConfigs = {};
       const simNames = document.querySelectorAll('.simName');
       const interfaces = document.querySelectorAll('.interface');
