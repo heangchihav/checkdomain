@@ -109,11 +109,66 @@
       container.appendChild(div);
     }
 
+    // Store results as they come in
+    let realTimeResults = {};
+    let eventSource = null;
+
+    // Function to render the current results
+    function renderResults() {
+      const resultsDiv = document.getElementById('results');
+      let html = '';
+      
+      // Check if we have any results yet
+      const domainCount = Object.keys(realTimeResults).length;
+      if (domainCount === 0) {
+        resultsDiv.innerHTML = '<div class="loading">Waiting for results...</div>';
+        return;
+      }
+
+      // Render each domain's results
+      for (const domain in realTimeResults) {
+        html += `<h3>${domain}</h3><table><tr><th>SIM</th><th>Interface</th><th>Status</th></tr>`;
+        
+        const domainResults = realTimeResults[domain];
+        for (const sim in domainResults) {
+          const result = domainResults[sim];
+          let color = '#6c757d';
+          
+          // Set color based on simplified status
+          if (result.status.includes('🔴') || result.status.includes('BLOCKED')) {
+            color = '#dc3545'; // Red for blocked
+            result.status = '🔴 BLOCKED';
+          } else if (result.status.includes('🟢') || result.status.includes('ACCESSIBLE')) {
+            color = '#28a745'; // Green for accessible
+            result.status = '🟢 ACCESSIBLE';
+          } else if (result.status.includes('Invalid')) {
+            color = '#6c757d'; // Gray for invalid interface
+          }
+          
+          html += `<tr><td>${result.sim}</td><td>${result.interface}</td><td style="color:${color}; font-weight:bold;">${result.status}</td></tr>`;
+        }
+        
+        html += '</table>';
+      }
+
+      resultsDiv.innerHTML = html;
+    }
+
+    // Function to handle the form submission
     document.getElementById('domainForm').addEventListener('submit', async function (event) {
       event.preventDefault();
 
-      const domains = document.getElementById('domains').value.split(/\n|,|\s+/).filter(Boolean);
+      // Clear previous results
+      realTimeResults = {};
+      document.getElementById('results').innerHTML = '<div class="loading">Starting checks...</div>';
 
+      // Close any existing SSE connection
+      if (eventSource) {
+        eventSource.close();
+      }
+
+      // Parse domains and SIM configurations
+      const domains = document.getElementById('domains').value.split(/\n|,|\s+/).filter(Boolean);
       const simConfigs = {};
       const simNames = document.querySelectorAll('.simName');
       const interfaces = document.querySelectorAll('.interface');
@@ -126,45 +181,56 @@
         }
       }
 
-      document.getElementById('results').innerHTML = '<div class="loading">Loading...</div>';
-
-      const response = await fetch('/api/check-domain', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ domains, simConfigs })
-      });
-
-      const { results } = await response.json();
-      const grouped = {};
-      results.forEach(r => {
-        if (!grouped[r.domain]) grouped[r.domain] = [];
-        grouped[r.domain].push(r);
-      });
-
-      let html = '';
-      for (const domain in grouped) {
-        html += `<h3>${domain}</h3><table><tr><th>SIM</th><th>Interface</th><th>Status</th></tr>`;
-        grouped[domain].forEach(({ sim, interface: iface, status }) => {
-          let color = '#6c757d';
-          let displayStatus = status;
-          if (status.includes('Failed') || status.includes('Timeout')) {
-            color = '#dc3545';
-            displayStatus = `🔴 ${status}`;
-          } else if (status.includes('200')) {
-            color = '#28a745';
-            displayStatus = `🟢 ${status}`;
-          } else if (status.includes('301') || status.includes('302')) {
-            color = '#ffc107';
-            displayStatus = `🟡 ${status}`;
-          } else {
-            displayStatus = `⚪ ${status}`;
+      // Start SSE connection first
+      eventSource = new EventSource('/api/sse');
+      
+      eventSource.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'result') {
+          const result = data.data;
+          
+          // Initialize domain object if it doesn't exist
+          if (!realTimeResults[result.domain]) {
+            realTimeResults[result.domain] = {};
           }
-          html += `<tr><td>${sim}</td><td>${iface}</td><td style="color:${color}; font-weight:bold;">${displayStatus}</td></tr>`;
-        });
-        html += '</table>';
-      }
+          
+          // Store the result by SIM name
+          realTimeResults[result.domain][result.sim] = result;
+          
+          // Update the display
+          renderResults();
+        } else if (data.type === 'complete') {
+          // All checks are complete, close the connection
+          eventSource.close();
+          eventSource = null;
+        }
+      };
+      
+      eventSource.onerror = function() {
+        console.error('SSE connection error');
+        eventSource.close();
+        eventSource = null;
+      };
 
-      document.getElementById('results').innerHTML = html;
+      // Send the request to start checking domains
+      try {
+        const response = await fetch('/api/check-domain', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ domains, simConfigs })
+        });
+        
+        const data = await response.json();
+        console.log('Check started:', data);
+      } catch (error) {
+        console.error('Error starting domain check:', error);
+        document.getElementById('results').innerHTML = '<div style="color: red">Error starting domain check</div>';
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+      }
     });
   </script>
 </body>
